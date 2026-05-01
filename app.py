@@ -1,96 +1,44 @@
-from flask import Flask, request, render_template_string
+import streamlit as st
 import numpy as np
 
-app = Flask(__name__)
+st.title("📊 Smart Investment Decision App")
 
-HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Investment App</title>
-    <style>
-        body { font-family: Arial; margin: 40px; background: #f5f5f5; }
-        h1 { color: #333; }
-        .card { background: white; padding: 15px; margin: 10px 0; border-radius: 10px; }
-        .best { color: green; font-weight: bold; }
-    </style>
-</head>
-<body>
+num_projects = st.number_input("Number of Projects", min_value=1, max_value=3)
 
-<h1>📊 Smart Investment Decision App</h1>
+projects = []
 
-<form method="POST">
-    <label>Number of Projects:</label>
-    <input type="number" name="num_projects" id="num_projects" min="1" max="3" required>
-    <button type="button" onclick="generateFields()">Generate</button>
+for i in range(int(num_projects)):
+    st.subheader(f"Project {i+1}")
+    
+    name = st.text_input(f"Project Name {i+1}", key=f"name{i}")
+    cost = st.number_input(f"Initial Cost {i+1}", key=f"cost{i}")
+    rate = st.number_input(f"Interest Rate (%) {i+1}", key=f"rate{i}")
+    years = st.number_input(f"Years {i+1}", min_value=1, key=f"years{i}")
 
-    <div id="projects"></div><br>
+    cash_flows = []
+    for y in range(int(years)):
+        cf = st.number_input(f"Year {y+1} Cash Flow (Project {i+1})", key=f"cf{i}{y}")
+        cash_flows.append(cf)
 
-    <button type="submit">Calculate</button>
-</form>
+    projects.append({
+        "name": name,
+        "cost": cost,
+        "rate": rate,
+        "cash_flows": cash_flows
+    })
 
-{% if results %}
-<h2>Results</h2>
-
-{% for r in results %}
-<div class="card">
-    <h3>{{ r.name }}</h3>
-    <p>NPV: ₹ {{ r.npv }}</p>
-    <p>IRR: {{ r.irr }} %</p>
-    <p>Payback: {{ r.payback }} years</p>
-</div>
-{% endfor %}
-
-<h2 class="best">Best Project: {{ best.name }}</h2>
-{% endif %}
-
-<script>
-function generateFields() {
-    let n = document.getElementById("num_projects").value;
-    let container = document.getElementById("projects");
-    container.innerHTML = "";
-
-    for (let i = 0; i < n; i++) {
-        container.innerHTML += `
-        <h3>Project ${i+1}</h3>
-        Name: <input name="name${i}" required><br>
-        Cost: <input name="cost${i}" type="number" required><br>
-        Rate (%): <input name="rate${i}" type="number" required><br>
-        Years: <input name="years${i}" type="number" id="years${i}" onchange="addCF(${i})" required><br>
-        <div id="cf${i}"></div><br>
-        `;
-    }
-}
-
-function addCF(i) {
-    let years = document.getElementById("years"+i).value;
-    let div = document.getElementById("cf"+i);
-    div.innerHTML = "";
-
-    for (let y = 0; y < years; y++) {
-        div.innerHTML += `Year ${y+1} Cash Flow:
-        <input name="cf${i}_${y}" type="number" required><br>`;
-    }
-}
-</script>
-
-</body>
-</html>
-"""
-
-# 🔹 Calculations
 def npv(rate, cash_flows, cost):
     rate = rate / 100
     total = -cost
     for i, cf in enumerate(cash_flows):
         total += cf / ((1 + rate) ** (i + 1))
-    return round(total, 2)
+    return total
 
 def irr(cash_flows, cost):
     try:
-        return round(np.irr([-cost] + cash_flows) * 100, 2)
+        return np.irr([-cost] + cash_flows) * 100
     except:
-        return "N/A"
+        return None
 
 def payback(cash_flows, cost):
     total = 0
@@ -98,36 +46,25 @@ def payback(cash_flows, cost):
         total += cf
         if total >= cost:
             return i + 1
-    return "Not recovered"
+    return None
 
-@app.route("/", methods=["GET", "POST"])
-def home():
+if st.button("Calculate"):
     results = []
 
-    if request.method == "POST":
-        n = int(request.form["num_projects"])
+    for p in projects:
+        results.append({
+            "name": p["name"],
+            "npv": npv(p["rate"], p["cash_flows"], p["cost"]),
+            "irr": irr(p["cash_flows"], p["cost"]),
+            "payback": payback(p["cash_flows"], p["cost"])
+        })
 
-        for i in range(n):
-            name = request.form[f"name{i}"]
-            cost = float(request.form[f"cost{i}"])
-            rate = float(request.form[f"rate{i}"])
-            years = int(request.form[f"years{i}"])
+    best = max(results, key=lambda x: x["npv"])
 
-            cash_flows = []
-            for y in range(years):
-                cash_flows.append(float(request.form[f"cf{i}_{y}"]))
+    for r in results:
+        st.write(f"### {r['name']}")
+        st.write(f"NPV: ₹ {round(r['npv'],2)}")
+        st.write(f"IRR: {round(r['irr'],2) if r['irr'] else 'N/A'} %")
+        st.write(f"Payback: {r['payback']} years")
 
-            results.append({
-                "name": name,
-                "npv": npv(rate, cash_flows, cost),
-                "irr": irr(cash_flows, cost),
-                "payback": payback(cash_flows, cost)
-            })
-
-        best = max(results, key=lambda x: x["npv"])
-        return render_template_string(HTML, results=results, best=best)
-
-    return render_template_string(HTML)
-
-if __name__ == "__main__":
-    app.run(debug=True)
+    st.success(f"Best Project: {best['name']}")
